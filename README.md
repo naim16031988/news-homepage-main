@@ -1,4 +1,4 @@
-# Frontend Mentor - News homepage
+# Frontend Mentor - News homepage https://naim16031988.github.io/news-homepage-main/
 
 ![Design preview for the News homepage coding challenge](./design/desktop-preview.jpg)
 
