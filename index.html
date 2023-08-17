@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"> <!-- displays site properly based on user's device -->
+
+  <link rel="icon" type="image/png" sizes="32x32" href="./assets/images/favicon-32x32.png">
+  
+  <title>Frontend Mentor | News homepage</title>
+
+  <!-- Feel free to remove these styles or customise in your own stylesheet 👍 -->
+  <style>
+    .attribution { font-size: 11px; text-align: center; }
+    .attribution a { color: hsl(228, 45%, 44%); }
+  </style>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+<navbar class="navigation">
+    <img src="assets/images/logo.svg" alt="">
+    <div class="open-button" onclick="openMenu()" id="openButton">
+      <img src="assets/images/icon-menu.svg" alt="" class="menu__icon">
+  </div>
+  <button class="close-menu" onclick="closeMenu()" id="closeButton">
+    <img src="assets/images/icon-menu-close.svg" alt="">
+  </button>
+    <ul class="menu" id="menu">
+        <li>Home</li>
+        <li>New</li>
+        <li>Popular</li>
+        <li>Trending</li>
+        <li>Categories</li> 
+    </ul>
+</navbar>
+<main class="main__content">
+  <div class="left__content">
+    <img src="assets/images/image-web-3-desktop.jpg" alt="" class="image__game">
+    <img src="assets/images/image-web-3-mobile.jpg" alt="" class="image__game__mobile">
+
+    <div class="bottom__left__content">
+      <h1 class="title">The Right Future of Web 3.0?</h1> 
+      <div class="text__and__read__more">
+        <p>We dive into the next evolution of the web that claims to put the power of the platforms back into the hands of the people. 
+          But is it really fulfilling its promise?</p>
+        <button>Read more</button>
+      </div>
+    </div>
+  </div>
+  <div class="right__content">
+    <h1>New </h1>
+    <article>
+      <h2>Hydrogen VS Electric Cars</h2>
+      <p>  Will hydrogen-fueled cars ever catch up to EVs?</p>
+    </article>
+    <hr>
+    <article>
+      <h2>The Downsides of AI Artistry</h2>
+      <p>What are the possible adverse effects of on-demand AI image generation?</p>
+    </article>
+    <hr>
+    <article>
+      <h2>Is VC Funding Drying Up?</h2>
+      <p>Private funding by VC firms is down 50% YOY. We take a look at what that means.</p>
+    </article>
+  </div> 
+</main>
+<div class="footer">
+  <div class="old__article">
+    <img src="assets/images/image-retro-pcs.jpg" alt="">
+    <div class="article__content">
+      <div class="old__article__number">
+        01
+      </div>
+      <div class="old__article__title">Reviving Retro PCs
+      </div>
+      <div class="old__article__text">What happens when old PCs are given modern upgrades?
+      </div>
+    </div>
+  </div>
+  <div class="old__article">
+    <img src="assets/images/image-top-laptops.jpg" alt="">
+    <div class="article__content">
+      <div class="old__article__number">
+        02
+      </div>
+      <div class="old__article__title">Top 10 Laptops of 2022
+      </div>
+      <div class="old__article__text">Our best picks for various needs and budgets.
+      </div>
+    </div>  
+  </div>
+  <div class="old__article">
+    <img src="assets/images/image-gaming-growth.jpg" alt="">
+    <div class="article__content">
+    <div class="old__article__number">
+        03
+      </div>
+      <div class="old__article__title">The Growth of Gaming
+      </div>
+      <div class="old__article__text">How the pandemic has sparked fresh opportunities.
+      </div>
+    </div>
+    </div>
+  </div>
+  <div class="attribution">
+    Challenge by <a href="https://www.frontendmentor.io?ref=challenge" target="_blank">Frontend Mentor</a>. 
+    Coded by <a href="#">Naim Maouche</a>.
+  </div>
+  <script>
+    let menuContiner = document.getElementById("menu");
+    let closeButton = document.getElementById("closeButton");
+    function openMenu(){
+    
+    menuContiner.classList.add("menu-collapsed");
+    menuContiner.classList.remove("menu");   
+    closeButton.style.display= "unset";
+    }
+    function closeMenu (){
+      menuContiner.classList.remove("menu-collapsed");
+      menuContiner.classList.add("menu");   
+      closeButton.style.display= "none";
+
+    }
+  </script>
+</body>
+</html>
