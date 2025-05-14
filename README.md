@@ -279,10 +279,36 @@ def get_containers_info():
                 "node": node_instance
             })
 
-    return containers
+    return 
 
-if __name__ == "__main__":
-    containers = get_containers_info()
-    print("Running containers:")
-    for c in containers:
-        print(f"Name: {c['name']}, ID: {c['id']}, Node: {c['node']}")
+
+    
+
+import json
+import random
+
+# Example input: replace these with your real data
+containers = [
+    {"name": "nginx", "image": "nginx:latest"},
+    {"name": "redis", "image": "redis:alpine"},
+    {"name": "myapp", "image": "myapp:v1"}
+]
+
+nodes = ["node1", "node2", "node3"]
+
+# Random mapping
+mapped = []
+for container in containers:
+    assigned_node = random.choice(nodes)
+    mapped.append({
+        "container_name": container["name"],
+        "image": container["image"],
+        "assigned_node": assigned_node
+    })
+
+# Save to JSON
+with open("mapping.json", "w") as f:
+    json.dump(mapped, f, indent=4)
+
+print("Mapping saved to mapping.json")
+
