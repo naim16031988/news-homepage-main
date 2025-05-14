@@ -175,8 +175,75 @@ Verify Prometheus is running:
 
 Optional: Docker Network & Firewall Notes
 	•	Ensure ports 8080 (for cAdvisor) and 9090 (for Prometheus) are open in firewalls/security groups.
-	•	If machines are in the same Docker network (e.g., in a swarm), you can use service/container names instead of IPs.
+	•	If machines are in the same Docker network (e.g., in a swarm), you can use service/container names instead of I
+ To include the node (host machine) where each container is running, we can extract the instance label from cAdvisor metrics — this typically represents the IP:port of the cAdvisor exporter running on the node.
+
+Here’s an updated Python script that shows:
+	•	Container name
+	•	Container ID
+	•	Node (IP or hostname where the container is running)
 
 ⸻
 
-Would you like a Docker Compose setup for this instead?
+✅ Updated Python Script
+
+import requests
+
+PROMETHEUS_URL = "http://localhost:9090"  # Change to your Prometheus server address
+
+def query_prometheus(promql):
+    url = f"{PROMETHEUS_URL}/api/v1/query"
+    response = requests.get(url, params={'query': promql})
+    data = response.json()
+    if data["status"] != "success":
+        raise Exception(f"Query failed: {data}")
+    return data["data"]["result"]
+
+def get_containers_info():
+    # Use a cAdvisor metric that includes container name, ID, and instance (node)
+    results = query_prometheus('container_last_seen')
+
+    containers = []
+    for result in results:
+        labels = result.get("metric", {})
+        name = labels.get("container", "unknown")
+        container_id = labels.get("id", "unknown")
+        node_instance = labels.get("instance", "unknown")  # This is often IP:port of the node
+
+        # Filter out infrastructure or empty containers
+        if name and name not in ["", "/", "POD"]:
+            containers.append({
+                "name": name,
+                "id": container_id,
+                "node": node_instance
+            })
+
+    return containers
+
+if __name__ == "__main__":
+    containers = get_containers_info()
+    print("Running containers:")
+    for c in containers:
+        print(f"Name: {c['name']}, ID: {c['id']}, Node: {c['node']}")
+
+
+⸻
+
+✅ Example Output
+
+Running containers:
+Name: nginx-container, ID: /docker/18b3d2f12345..., Node: 192.168.1.10:8080
+Name: redis-db, ID: /docker/ae1298371abc..., Node: 192.168.1.11:8080
+
+
+⸻
+
+✅ Notes
+	•	The instance field (e.g., 192.168.1.10:8080) refers to the cAdvisor instance, which usually runs per host.
+	•	You can map this IP to a hostname manually or use an external node label (if available via Prometheus).
+
+⸻
+
+Would you like:
+	•	The instance IP resolved to hostnames?
+	•	To export the result as JSON, CSV, or into a database?
