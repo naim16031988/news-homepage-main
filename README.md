@@ -92,3 +92,91 @@ We love receiving feedback! We're always looking to improve our challenges and o
 This challenge is completely free. Please share it with anyone who will find it useful for practice.
 
 **Have fun building!** 🚀
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'cadvisor-machine-a'
+    static_configs:
+      - targets: ['localhost:8080']
+
+  - job_name: 'cadvisor-machine-b'
+    static_configs:
+      - targets: ['<Machine-B-IP>:8080']
+docker run -d \
+  --name=prometheus \
+  -p 9090:9090 \
+  -v $(pwd)/prometheus.yml:/etc/prometheus/prometheus.yml \
+  prom/prometheus
+
+
+To run Prometheus in Docker and track cAdvisor metrics from two different machines, follow these steps on each machine:
+
+⸻
+
+1. Setup cAdvisor on Both Machines
+
+On Machine A and Machine B, run:
+
+docker run -d \
+  --name=cadvisor \
+  --volume=/:/rootfs:ro \
+  --volume=/var/run:/var/run:ro \
+  --volume=/sys:/sys:ro \
+  --volume=/var/lib/docker/:/var/lib/docker:ro \
+  --publish=8080:8080 \
+  --detach=true \
+  --name=cadvisor \
+  gcr.io/cadvisor/cadvisor:latest
+
+Verify access by visiting:
+	•	http://<Machine-A-IP>:8080/metrics
+	•	http://<Machine-B-IP>:8080/metrics
+
+⸻
+
+2. Configure Prometheus on a Central Machine
+
+Let’s assume Prometheus will run on Machine A.
+
+Create prometheus.yml
+
+Create a file prometheus.yml with the following content:
+
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'cadvisor-machine-a'
+    static_configs:
+      - targets: ['localhost:8080']
+
+  - job_name: 'cadvisor-machine-b'
+    static_configs:
+      - targets: ['<Machine-B-IP>:8080']
+
+Replace <Machine-B-IP> with the actual IP address of Machine B.
+
+⸻
+
+3. Run Prometheus Docker Container
+
+docker run -d \
+  --name=prometheus \
+  -p 9090:9090 \
+  -v $(pwd)/prometheus.yml:/etc/prometheus/prometheus.yml \
+  prom/prometheus
+
+Verify Prometheus is running:
+	•	Go to http://<Machine-A-IP>:9090
+	•	Navigate to “Targets” to check both cAdvisor instances are being scraped.
+
+⸻
+
+Optional: Docker Network & Firewall Notes
+	•	Ensure ports 8080 (for cAdvisor) and 9090 (for Prometheus) are open in firewalls/security groups.
+	•	If machines are in the same Docker network (e.g., in a swarm), you can use service/container names instead of IPs.
+
+⸻
+
+Would you like a Docker Compose setup for this instead?
