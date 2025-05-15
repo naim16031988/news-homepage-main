@@ -1,5 +1,56 @@
 
-from flask import Flask, render_template_string
+import socket
+import pandas as pd
+from datetime import datetime
+from codecarbon import EmissionsTracker
+import psycopg2
+
+# Config — adjust these
+DB_CONFIG = {
+    "host": "localhost",       # Use 'localhost' or actual IP
+    "port": 5432,
+    "dbname": "mydb",
+    "user": "myuser",
+    "password": "mypass"
+}
+
+AGENT_ID = "agent1"
+TASK_TYPE = "train"
+NODE_NAME = socket.gethostname()
+
+# Start CodeCarbon tracking
+tracker = EmissionsTracker(output_file="energy_temp.csv", log_level="error")
+tracker.start()
+
+# Your workload (simulate)
+for _ in range(10**6): pass  # replace with real task
+
+tracker.stop()
+
+# Read energy from CSV
+df = pd.read_csv("energy_temp.csv")
+energy_wh = df.tail(1)["energy_consumed"].values[0] * 1000
+timestamp = datetime.utcnow()
+
+# Insert into PostgreSQL
+try:
+    conn = psycopg2.connect(**DB_CONFIG)
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO energy_usage (timestamp, agent_id, task_type, energy_wh, node_name) VALUES (%s, %s, %s, %s, %s)",
+        (timestamp, AGENT_ID, TASK_TYPE, energy_wh, NODE_NAME)
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+    print(f"✅ Logged {energy_wh:.3f} Wh for {AGENT_ID} on {NODE_NAME}")
+except Exception as e:
+    print(f"❌ Failed to log to PostgreSQL: {e}")
+    
+    
+    
+    
+    from flask import Flask, render_template_string
 from codecarbon import EmissionsTracker
 import numpy as np
 import random
