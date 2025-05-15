@@ -1,3 +1,43 @@
+import psycopg2
+from datetime import datetime
+
+# Adjust these as needed
+DB_CONFIG = {
+    "host": "localhost",      # or IP of PostgreSQL container
+    "port": 5432,
+    "dbname": "mydb",
+    "user": "myuser",
+    "password": "mypass"
+}
+
+try:
+    conn = psycopg2.connect(**DB_CONFIG)
+    cur = conn.cursor()
+
+    cur.execute("""
+        INSERT INTO energy_usage (timestamp, agent_id, task_type, energy_wh, node_name)
+        VALUES (%s, %s, %s, %s, %s)
+    """, (
+        datetime.utcnow(),
+        "test_agent",
+        "test_task",
+        1.23,
+        "test_node"
+    ))
+
+    conn.commit()
+    cur.close()
+    conn.close()
+    print("✅ Inserted test row successfully.")
+
+except Exception as e:
+    print("❌ Failed to insert row:", e)
+
+
+
+
+
+
 
 import socket
 import pandas as pd
