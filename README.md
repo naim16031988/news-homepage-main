@@ -1,3 +1,131 @@
+
+from flask import Flask, render_template_string
+from codecarbon import EmissionsTracker
+import numpy as np
+import random
+import pandas as pd
+import psycopg2
+from datetime import datetime
+
+app = Flask(__name__)
+
+# DB configuration (adjust to match your PostgreSQL setup)
+DB_CONFIG = {
+    "dbname": "your_db",
+    "user": "your_user",
+    "password": "your_pass",
+    "host": "localhost",
+    "port": 5432,
+}
+
+AGENT_ID = "agent1"  # change this for each agent
+
+# Q-learning setup
+N_STATES = 5
+ACTIONS = ['left', 'right']
+EPSILON = 0.1
+ALPHA = 0.1
+GAMMA = 0.9
+Q = np.zeros((N_STATES, len(ACTIONS)))
+
+HTML_TEMPLATE = '''
+<!DOCTYPE html>
+<html>
+<head><title>RL_Agent_1</title></head>
+<body>
+  <h1>RL_Agent_1</h1>
+  <form action="/train" method="post">
+    <button type="submit">Train Agent</button>
+  </form>
+  <form action="/test" method="post">
+    <button type="submit">Test Agent</button>
+  </form>
+  <pre>{{ output }}</pre>
+</body>
+</html>
+'''
+
+def choose_action(state):
+    return random.choice([0, 1]) if random.random() < EPSILON else np.argmax(Q[state])
+
+def get_feedback(state, action):
+    if ACTIONS[action] == 'right':
+        if state == N_STATES - 2:
+            return state + 1, 10
+        elif state < N_STATES - 1:
+            return state + 1, 0
+    elif ACTIONS[action] == 'left' and state > 0:
+        return state - 1, 0
+    return state, 0
+
+def log_to_postgres(agent_id, task_type, energy_wh):
+    timestamp = datetime.utcnow()
+    conn = psycopg2.connect(**DB_CONFIG)
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO energy_usage (timestamp, agent_id, task_type, energy_wh) VALUES (%s, %s, %s, %s)",
+        (timestamp, agent_id, task_type, energy_wh)
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+@app.route("/", methods=["GET"])
+def index():
+    return render_template_string(HTML_TEMPLATE, output="")
+
+@app.route("/train", methods=["POST"])
+def train():
+    tracker = EmissionsTracker(output_file="web_emissions.csv", log_level="error")
+    tracker.start()
+
+    for episode in range(5):
+        state = 0
+        while state != N_STATES - 1:
+            action = choose_action(state)
+            next_state, reward = get_feedback(state, action)
+            Q[state, action] += ALPHA * (reward + GAMMA * np.max(Q[next_state]) - Q[state, action])
+            state = next_state
+
+    tracker.stop()
+
+    df = pd.read_csv("web_emissions.csv")
+    energy_wh = df.tail(1)['energy_consumed'].values[0] * 1000
+
+    log_to_postgres(AGENT_ID, "train", energy_wh)
+
+    output = f"✅ Training complete for 5 episodes.\n🔌 Energy consumed (train): {energy_wh:.8f} Wh"
+    return render_template_string(HTML_TEMPLATE, output=output)
+
+@app.route("/test", methods=["POST"])
+def test():
+    tracker = EmissionsTracker(output_file="web_emissions.csv", log_level="error")
+    tracker.start()
+
+    output = "Test episode:\n"
+    state = 0
+    steps = 0
+    while state != N_STATES - 1:
+        action = np.argmax(Q[state])
+        state, _ = get_feedback(state, action)
+        steps += 1
+
+    tracker.stop()
+
+    df = pd.read_csv("web_emissions.csv")
+    energy_wh = df.tail(1)['energy_consumed'].values[0] * 1000
+
+    log_to_postgres(AGENT_ID, "test", energy_wh)
+
+    output += f"Reached goal in {steps} steps using learned policy.\n"
+    output += f"🔌 Energy consumed (test): {energy_wh:.8f} Wh"
+    return render_template_string(HTML_TEMPLATE, output=output)
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
+
+
+
 # Frontend Mentor - News homepage https://naim16031988.github.io/news-homepage-main/
 
 ![Design preview for the News homepage coding challenge](./design/desktop-preview.jpg)
