@@ -1,4 +1,114 @@
-import psycopg2
+To install and configure Scaphandre on a virtual machine (VM) to receive energy metrics from a QEMU/KVM hypervisor, follow these detailed steps:
+
+⸻
+
+🧰 Prerequisites
+	•	Hypervisor: A host machine running QEMU/KVM with libvirt.
+	•	Guest VM: A virtual machine managed by the hypervisor.
+	•	Scaphandre: Installed on both the hypervisor and the guest VM.
+	•	Filesystem Sharing: virtiofs support enabled for sharing filesystems between host and guest.
+
+⸻
+
+🖥️ On the Hypervisor (Host Machine)
+
+1. Install Scaphandre
+
+Download and install the latest Scaphandre binary:
+
+wget https://github.com/hubblo-org/scaphandre/releases/latest/download/scaphandre-linux-x86_64
+chmod +x scaphandre-linux-x86_64
+sudo mv scaphandre-linux-x86_64 /usr/local/bin/scaphandre
+
+2. Run Scaphandre with the QEMU Exporter
+
+Start Scaphandre to compute per-VM energy metrics:
+
+sudo scaphandre qemu
+
+This will generate energy metrics for each VM in /var/lib/libvirt/scaphandre/DOMAIN_NAME, where DOMAIN_NAME is the name of your VM.
+
+3. Create a tmpfs Mount Point for the VM
+
+For each VM, create a temporary filesystem to store its metrics:
+
+sudo mkdir -p /var/lib/libvirt/scaphandre/DOMAIN_NAME
+sudo mount -t tmpfs tmpfs_DOMAIN_NAME /var/lib/libvirt/scaphandre/DOMAIN_NAME -o size=5m
+
+Replace DOMAIN_NAME with your VM’s actual name.
+
+4. Configure the VM to Access the Metrics
+
+Edit the VM’s libvirt XML configuration:
+
+sudo virsh edit DOMAIN_NAME
+
+Within the <devices> section, add:
+
+<filesystem type='mount' accessmode='passthrough'>
+    <driver type='virtiofs'/>
+    <source dir='/var/lib/libvirt/scaphandre/DOMAIN_NAME'/>
+    <target dir='scaphandre'/>
+    <readonly/>
+</filesystem>
+
+If you encounter an error regarding virtiofs requiring shared memory, add the following within the <domain> section:
+
+<memoryBacking>
+  <source type='memfd'/>
+  <access mode='shared'/>
+</memoryBacking>
+
+Save the configuration and restart the VM:
+
+sudo virsh shutdown DOMAIN_NAME
+sudo virsh start DOMAIN_NAME
+
+
+⸻
+
+🖥️ On the Guest VM
+
+1. Install Scaphandre
+
+Inside the VM, download and install Scaphandre:
+
+wget https://github.com/hubblo-org/scaphandre/releases/latest/download/scaphandre-linux-x86_64
+chmod +x scaphandre-linux-x86_64
+sudo mv scaphandre-linux-x86_64 /usr/local/bin/scaphandre
+
+2. Mount the Shared Filesystem
+
+Create a mount point and mount the shared directory:
+
+sudo mkdir -p /var/scaphandre
+sudo mount -t 9p -o trans=virtio scaphandre /var/scaphandre
+
+3. Run Scaphandre in VM Mode
+
+Start Scaphandre to read the metrics provided by the hypervisor:
+
+scaphandre --vm prometheus
+
+This will expose the energy metrics on port 8080. You can access them via:
+
+http://<VM_IP>:8080/metrics
+
+
+⸻
+
+🔄 Summary
+
+By following these steps:
+	•	The hypervisor computes and shares per-VM energy metrics using Scaphandre.
+	•	The guest VM accesses these metrics through a shared filesystem.
+	•	Scaphandre on the VM reads and exposes the metrics, enabling monitoring tools like Prometheus to collect them.
+
+This setup allows for accurate energy monitoring within virtualized environments, facilitating energy-aware scheduling and analysis.
+
+⸻
+
+For more detailed information, refer to the official Scaphandre documentation: Propagate power consumption metrics from hypervisor to virtual machines (Qemu/KVM).import psycopg2
 from datetime import datetime
 
 # Adjust these as needed
