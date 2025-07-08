@@ -1,0 +1,41 @@
+import zmq
+import cv2
+import numpy as np
+import torch
+from ultralytics import YOLO
+
+# --- CONFIG ---
+DISPATCHER_ADDR = "tcp://<DISPATCHER_IP>:5555"  # Replace <DISPATCHER_IP> with real IP
+VIEWER_PUSH_PORT = 5557  # Change to 5558 for second detector, etc.
+
+# Load YOLOv5 model
+model = YOLO("yolov5s.pt")  # or use a custom path
+
+# ZMQ: receive frames from dispatcher
+context = zmq.Context()
+receiver = context.socket(zmq.PULL)
+receiver.connect(DISPATCHER_ADDR)
+
+# ZMQ: send annotated frames to viewer
+sender = context.socket(zmq.PUSH)
+sender.bind(f"tcp://*:{VIEWER_PUSH_PORT}")
+
+print("[Detector] Started. Waiting for frames...")
+
+while True:
+    try:
+        # Receive a JPEG-encoded frame from dispatcher
+        frame_bytes = receiver.recv()
+        npimg = np.frombuffer(frame_bytes, dtype=np.uint8)
+        frame = cv2.imdecode(npimg, 1)
+
+        # Run YOLO detection
+        results = model.predict(frame, verbose=False)
+        annotated_frame = results[0].plot()
+
+        # Encode and send to viewer
+        _, jpeg = cv2.imencode('.jpg', annotated_frame)
+        sender.send(jpeg.tobytes())
+
+    except Exception as e:
+        print(f"[Detector] Error: {e}")
