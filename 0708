@@ -47,3 +47,36 @@ while True:
         break
 
 cv2.destroyAllWindows()
+# Global writer, initialized only once
+video_writer = None
+output_path = "annotated_output.avi"
+fourcc = cv2.VideoWriter_fourcc(*'XVID')
+fps = 20  # You can adjust this
+
+cv2.namedWindow("YOLOv5 Reconstructed", cv2.WINDOW_NORMAL)
+cv2.resizeWindow("YOLOv5 Reconstructed", 960, 540)
+
+while True:
+    if expected_frame_id in frame_buffer:
+        frame = frame_buffer.pop(expected_frame_id)
+
+        # Initialize writer when first frame arrives
+        if video_writer is None:
+            h, w = frame.shape[:2]
+            video_writer = cv2.VideoWriter(output_path, fourcc, fps, (w, h))
+            print(f"[INFO] Saving video to: {output_path}")
+
+        # Write frame to video file
+        video_writer.write(frame)
+
+        # Display frame
+        cv2.imshow("YOLOv5 Reconstructed", frame)
+        expected_frame_id += 1
+
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+# Clean up
+if video_writer:
+    video_writer.release()
+cv2.destroyAllWindows()
