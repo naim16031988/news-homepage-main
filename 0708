@@ -107,3 +107,37 @@ while True:
 
 cap.release()
 cv2.destroyAllWindows()
+
+
+
+
+
+
+
+
+
+
+def receive_from_vm(ip, port, stop_event):
+    sock = context.socket(zmq.PULL)
+    sock.connect(f"tcp://{ip}:{port}")
+    print(f"[INFO] Connected to detector at {ip}:{port}")
+    
+    while not stop_event.is_set():
+        try:
+            msg = sock.recv(flags=zmq.NOBLOCK)
+            data = msgpack.unpackb(msg, raw=False)
+            frame_id = data["frame_id"]
+            jpg = data["image"]
+            print(f"frame id :{frame_id} with size: {len(msg)} received from VM {ip}")
+            frame = cv2.imdecode(np.frombuffer(jpg, np.uint8), cv2.IMREAD_COLOR)
+            if frame is not None:
+                frame_buffer[frame_id] = frame
+        except zmq.Again:
+            time.sleep(0.01)
+        except Exception as e:
+            print(f"[ERROR] {ip}:{port} {e}")
+            break
+
+    print(f"[INFO] Stopped receiver for {ip}:{port}")
+    sock.close()
+    cv2.destroyWindow(f"{ip}:{port}")
