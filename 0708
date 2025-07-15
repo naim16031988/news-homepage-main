@@ -141,3 +141,126 @@ def receive_from_vm(ip, port, stop_event):
     print(f"[INFO] Stopped receiver for {ip}:{port}")
     sock.close()
     cv2.destroyWindow(f"{ip}:{port}")
+
+
+
+
+
+
+import zmq
+import msgpack
+import cv2
+import numpy as np
+import threading
+import time
+import json
+import os
+
+# Path to the shared agent file
+AGENTS_FILE = "/app/agent_instances.json"
+
+# Configuration
+display_window_size = 5
+min_ready_frames = 3
+
+frame_conter = 0
+fps_timer = time.time()
+context = zmq.Context()
+frame_buffer = {}
+expected_frame_id = 0
+
+# Track running agent threads
+started_detectors = {}  # {(ip, port): {"thread": Thread, "stop_event": Event}}
+
+
+# Load agents from JSON file
+def load_agents():
+    try:
+        with open(AGENTS_FILE, "r") as f:
+            data = json.load(f)
+            return [(d["ip"], d["port"]) for d in data]
+    except Exception as e:
+        print(f"[ERROR] Could not read {AGENTS_FILE}: {e}")
+        return []
+
+
+# Receive frames from one detector VM
+def receive_from_vm(ip, port, stop_event):
+    sock = context.socket(zmq.PULL)
+    sock.connect(f"tcp://{ip}:{port}")
+    print(f"[INFO] Connected to detector at {ip}:{port}")
+    
+    while not stop_event.is_set():
+        try:
+            msg = sock.recv(flags=zmq.NOBLOCK)
+            data = msgpack.unpackb(msg, raw=False)
+            frame_id = data["frame_id"]
+            jpg = data["image"]
+            print(f"frame id :{frame_id} with size: {len(msg)} received from VM {ip}")
+            frame = cv2.imdecode(np.frombuffer(jpg, np.uint8), cv2.IMREAD_COLOR)
+            if frame is not None:
+                frame_buffer[frame_id] = frame
+        except zmq.Again:
+            time.sleep(0.01)
+        except Exception as e:
+            print(f"[ERROR] {ip}:{port} {e}")
+            break
+
+    print(f"[INFO] Stopped receiver for {ip}:{port}")
+    sock.close()
+    cv2.destroyWindow(f"{ip}:{port}")
+
+
+# Watch for changes in the agent list and manage threads
+def watch_for_new_agents():
+    while True:
+        agents = load_agents()
+        current_set = set(agents)
+        known_set = set(started_detectors.keys())
+
+        # Stop removed agents
+        removed_agents = known_set - current_set
+        for agent in removed_agents:
+            print(f"[INFO] Stopping thread for {agent[0]}:{agent[1]}")
+            started_detectors[agent]["stop_event"].set()
+            started_detectors[agent]["thread"].join()
+            del started_detectors[agent]
+
+        # Start new agents
+        for ip, port in current_set - known_set:
+            print(f"[INFO] Starting thread for {ip}:{port}")
+            stop_event = threading.Event()
+            thread = threading.Thread(target=receive_from_vm, args=(ip, port, stop_event), daemon=True)
+            thread.start()
+            started_detectors[(ip, port)] = {"thread": thread, "stop_event": stop_event}
+
+        time.sleep(3)
+
+
+# Start monitoring thread
+threading.Thread(target=watch_for_new_agents, daemon=True).start()
+
+# OpenCV display loop
+cv2.namedWindow("YOLOv5 Reconstructed", cv2.WINDOW_NORMAL)
+cv2.resizeWindow("YOLOv5 Reconstructed", 960, 540)
+
+try:
+    while True:
+        if len(frame_buffer) >= min_ready_frames:
+            sorted_ids = sorted(frame_buffer.keys())
+            to_display = sorted_ids[:display_window_size]
+            for fid in to_display:
+                frame = frame_buffer.pop(fid)
+                cv2.imshow("YOLOv5 Reconstructed", frame)
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    raise KeyboardInterrupt
+        time.sleep(0.01)
+except KeyboardInterrupt:
+    print("\n[SHUTDOWN] Stopping all threads...")
+    for agent in list(started_detectors.keys()):
+        started_detectors[agent]["stop_event"].set()
+    for agent in list(started_detectors.keys()):
+        started_detectors[agent]["thread"].join()
+    print("[SHUTDOWN] Viewer closed.")
+
+cv2.destroyAllWindows()
