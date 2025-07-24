@@ -37,3 +37,59 @@ while True:
         break
 
 cv2.destroyAllWindows()
+
+
+
+
+
+
+
+
+
+
+mimport time
+import requests
+
+def initialize_energy_state(prometheus_url, vm_ips):
+    """
+    At agent launch: fetch initial energy and timestamp per VM.
+
+    Parameters:
+        prometheus_url (str): URL of Prometheus server
+        vm_ips (list[str]): List of VM IPs (e.g. ["192.168.0.11", "192.168.0.12"])
+
+    Returns:
+        dict: { ip: { 'energy': µJ, 'time': timestamp } }
+    """
+    try:
+        res = requests.get(f"{prometheus_url}/api/v1/query", params={
+            "query": "scaph_host_energy_microjoules"
+        })
+        res.raise_for_status()
+        results = res.json()["data"]["result"]
+    except Exception as e:
+        print(f"Failed to query Prometheus at launch: {e}")
+        return {}
+
+    energy_state = {}
+    now = time.time()
+
+    for ip in vm_ips:
+        for metric in results:
+            instance = metric["metric"].get("instance", "")
+            ip_only = instance.split(":")[0]
+            if ip_only == ip:
+                energy_uj = float(metric["value"][1])
+                energy_state[ip] = {
+                    "energy": energy_uj,
+                    "time": now
+                }
+                break
+        else:
+            # No metric found
+            energy_state[ip] = {
+                "energy": 0.0,
+                "time": now
+            }
+
+    return energy_state
