@@ -93,3 +93,193 @@ def initialize_energy_state(prometheus_url, vm_ips):
             }
 
     return energy_state
+
+
+
+
+from flask import Flask, request, jsonify
+import json
+import requests
+import time
+import random
+from collections import defaultdict
+
+app = Flask(__name__)
+
+# === Q-learning Parameters ===
+q_table = defaultdict(float)
+last_state = None
+last_action = None
+ALPHA = 0.1
+GAMMA = 0.9
+EPSILON = 0.1
+
+# === Load machine list ===
+def load_machine_data(file_path='machine_list.json'):
+    with open(file_path, 'r') as file:
+        return json.load(file)
+
+# === Get username and password by IP ===
+def get_user_name_by_ip(ip_address):
+    machine_data = load_machine_data()
+    for machine in machine_data:
+        if machine['ip_address'] == ip_address:
+            return machine['user_name']
+    return None
+
+def get_password_by_ip(ip_address):
+    machine_data = load_machine_data()
+    for machine in machine_data:
+        if machine['ip_address'] == ip_address:
+            return machine['Password']
+    return None
+
+# === Container count per VM ===
+def get_container_count(prometheus_url):
+    file_name = 'machine_list.json'
+    with open(file_name, 'r') as file:
+        vm_list = json.load(file)
+    query = 'container_last_seen{name=~"agent1.*"} > time() - 10'
+    query_url = f'{prometheus_url}/api/v1/query'
+
+    try:
+        response = requests.get(query_url, params={'query': query})
+        response.raise_for_status()
+        data = response.json().get('data', {}).get('result', [])
+    except Exception as e:
+        print(f"Error querying Prometheus: {e}")
+        return [0] * len(vm_list)
+
+    container_counts = {vm["ip_address"]: 0 for vm in vm_list}
+    for metric in data:
+        labels = metric.get("metric", {})
+        raw_ip = labels.get("instance", "")
+        ip = raw_ip.split(":")[0] if raw_ip else None
+        if ip in container_counts:
+            container_counts[ip] += 1
+
+    return [container_counts[vm["ip_address"]] for vm in vm_list]
+
+# === Initialize energy state at launch ===
+def initialize_energy_state(prometheus_url, vm_ips):
+    try:
+        res = requests.get(f"{prometheus_url}/api/v1/query", params={"query": "scaph_host_energy_microjoules"})
+        res.raise_for_status()
+        results = res.json()["data"]["result"]
+    except Exception as e:
+        print(f"Failed to query Prometheus at launch: {e}")
+        return {}
+
+    energy_state = {}
+    now = time.time()
+
+    for ip in vm_ips:
+        for metric in results:
+            instance = metric["metric"].get("instance", "")
+            ip_only = instance.split(":")[0]
+            if ip_only == ip:
+                energy_uj = float(metric["value"][1])
+                energy_state[ip] = {"energy": energy_uj, "time": now}
+                break
+        else:
+            energy_state[ip] = {"energy": 0.0, "time": now}
+
+    print("Initialized energy state:", energy_state)
+    return energy_state
+
+# === Compute power since last measurement ===
+def get_last_consumed_energy(target_ip):
+    global energy_state
+
+    try:
+        res = requests.get(f"{prometheus_url}/api/v1/query", params={"query": "scaph_host_energy_microjoules"})
+        res.raise_for_status()
+        results = res.json()["data"]["result"]
+    except Exception as e:
+        print(f"Error querying Prometheus: {e}")
+        return None, energy_state[target_ip]["energy"], energy_state[target_ip]["time"]
+
+    current_energy = None
+    for metric in results:
+        instance = metric["metric"].get("instance", "")
+        ip_only = instance.split(":")[0]
+        if ip_only == target_ip:
+            current_energy = float(metric["value"][1])
+            break
+
+    if current_energy is None:
+        print(f"No energy data found for {target_ip}")
+        return None, energy_state[target_ip]["energy"], energy_state[target_ip]["time"]
+
+    current_time = time.time()
+    last_energy = energy_state[target_ip]["energy"]
+    last_time = energy_state[target_ip]["time"]
+
+    delta_energy_joules = (current_energy - last_energy) / 1_000_000
+    delta_time_seconds = current_time - last_time
+    power_watts = delta_energy_joules / delta_time_seconds if delta_time_seconds > 0 else 0.0
+
+    energy_state[target_ip]["energy"] = current_energy
+    energy_state[target_ip]["time"] = current_time
+
+    return power_watts, current_energy, current_time
+
+# === Q-learning helpers ===
+def build_state(container_counts):
+    return tuple(container_counts)
+
+def select_action(state, vm_count):
+    if random.random() < EPSILON:
+        return random.randint(0, vm_count - 1)
+    return max(range(vm_count), key=lambda a: q_table.get((state, a), 0))
+
+def update_q_table(state, action, reward, next_state, vm_count):
+    old_q = q_table.get((state, action), 0)
+    future_q = max([q_table.get((next_state, a), 0) for a in range(vm_count)])
+    q_table[(state, action)] = old_q + ALPHA * (reward + GAMMA * future_q - old_q)
+
+# === Flask Routes ===
+@app.route('/selected_vm_to_scale_up', methods=['GET'])
+def selected_vm_to_scale_up():
+    global last_state, last_action
+
+    container_counts = get_container_count(prometheus_url)
+    state = build_state(container_counts)
+    action = select_action(state, len(container_counts))
+    target_ip = vm_ips[action]
+
+    power_watts, current_energy, current_time = get_last_consumed_energy(target_ip)
+    reward = -power_watts
+
+    container_counts[action] += 1
+    next_state = build_state(container_counts)
+
+    if last_state is not None and last_action is not None:
+        update_q_table(last_state, last_action, reward, next_state, len(container_counts))
+
+    last_state = state
+    last_action = action
+
+    return jsonify({
+        "selected_vm_index": action,
+        "selected_vm_ip": target_ip,
+        "reward_power_watts": power_watts
+    })
+
+@app.route('/get_vm_to_scale_down', methods=['GET'])
+def get_vm_to_scale_down():
+    return jsonify({"message": "Scaling down logic not implemented yet."})
+
+@app.route('/user_credentials', methods=['GET'])
+def user_credentials():
+    destination_node = request.args.get('destination_node')
+    user_name = get_user_name_by_ip(destination_node)
+    password = get_password_by_ip(destination_node)
+    return jsonify({'username': user_name, 'password': password})
+
+if __name__ == '__main__':
+    vm_ips = ['10.18.6.11']
+    prometheus_url = 'http://10.18.6.11:9090'
+    energy_state = initialize_energy_state(prometheus_url, vm_ips)
+    app.run(host='0.0.0.0', port=5050)
+
