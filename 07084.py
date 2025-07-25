@@ -283,3 +283,162 @@ if __name__ == '__main__':
     energy_state = initialize_energy_state(prometheus_url, vm_ips)
     app.run(host='0.0.0.0', port=5050)
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+from flask import Flask, jsonify, request
+from collections import defaultdict
+import random
+import requests
+import json
+import time
+import subprocess
+
+app = Flask(__name__)
+
+# Q-learning parameters
+q_table = defaultdict(float)
+ALPHA = 0.1
+GAMMA = 0.9
+EPSILON = 0.1
+
+# Prometheus setup
+prometheus_url = 'http://10.18.6.11:9090'
+host_ips = ["10.18.6.11", "10.18.6.12"]
+vm_ips = []
+
+# Agent memory
+last_state = None
+last_action = None
+last_energy = None
+last_time = None
+
+def get_vm_ips():
+    with open('machine_list.json') as f:
+        data = json.load(f)
+    return [vm['ip'].split(":")[0] for vm in data]
+
+def get_user_name_by_ip(ip):
+    with open('machine_list.json') as f:
+        data = json.load(f)
+    for vm in data:
+        if vm['ip'].startswith(ip):
+            return vm['username']
+    return None
+
+def get_password_by_ip(ip):
+    with open('machine_list.json') as f:
+        data = json.load(f)
+    for vm in data:
+        if vm['ip'].startswith(ip):
+            return vm['password']
+    return None
+
+def get_container_count(prometheus_url):
+    query = 'count(container_last_seen{{instance=~".*"}}) by (instance)'
+    response = requests.get(f'{prometheus_url}/api/v1/query', params={'query': query})
+    result = response.json().get('data', {}).get('result', [])
+    counts = {r['metric']['instance'].split(':')[0]: int(r['value'][1]) for r in result}
+    return [counts.get(ip, 0) for ip in vm_ips]
+
+def get_average_total_energy_microjoules(ips):
+    total_energy = 0
+    count = 0
+    for ip in ips:
+        query = f'sum(scaph_host_energy_microjoules{{instance="{ip}:9100"}})'
+        response = requests.get(f'{prometheus_url}/api/v1/query', params={'query': query})
+        try:
+            value = float(response.json()['data']['result'][0]['value'][1])
+            total_energy += value
+            count += 1
+        except:
+            continue
+    return total_energy if count > 0 else None
+
+def update_q_table(state, action, reward, next_state, vm_count):
+    current_q = q_table[(state, action)]
+    max_next_q = max(q_table.get((next_state, a), 0.0) for a in range(vm_count))
+    new_q = current_q + ALPHA * (reward + GAMMA * max_next_q - current_q)
+    q_table[(state, action)] = new_q
+
+def select_action(state, vm_count):
+    if random.random() < EPSILON:
+        return random.randint(0, vm_count - 1)
+    q_values = [q_table[(state, a)] for a in range(vm_count)]
+    return q_values.index(max(q_values))
+
+def finalize_last_action_reward(current_state):
+    global last_state, last_action, last_energy, last_time, q_table
+    if last_state is None or last_action is None or last_energy is None or last_time is None:
+        return
+    current_energy = get_average_total_energy_microjoules(host_ips)
+    current_time = time.time()
+    delta_energy = current_energy - last_energy
+    delta_time = current_time - last_time
+    if delta_time > 0:
+        power_watts = delta_energy / (delta_time * 1_000_000)
+        reward = -power_watts
+    else:
+        reward = 0.0
+    update_q_table(last_state, last_action, reward, current_state, len(vm_ips))
+    last_state = None
+    last_action = None
+    last_energy = None
+    last_time = None
+
+@app.route('/selected_vm_to_scale_up', methods=['GET'])
+def selected_vm_to_scale_up():
+    global last_state, last_action, last_energy, last_time
+    container_counts = get_container_count(prometheus_url)
+    current_state = tuple(container_counts)
+    finalize_last_action_reward(current_state)
+    action = select_action(current_state, len(container_counts))
+    selected_vm_ip = vm_ips[action]
+    username = get_user_name_by_ip(selected_vm_ip)
+    password = get_password_by_ip(selected_vm_ip)
+    command = f'sshpass -p {password} ssh -o StrictHostKeyChecking=no {username}@{selected_vm_ip} "docker run -d your_image"'
+    subprocess.run(command, shell=True)
+    last_state = current_state
+    last_action = action
+    last_energy = get_average_total_energy_microjoules(host_ips)
+    last_time = time.time()
+    return jsonify({
+        "selected_vm_index": action,
+        "selected_vm_ip": selected_vm_ip
+    })
+
+@app.route('/get_vm_to_scale_down', methods=['GET'])
+def get_vm_to_scale_down():
+    container_counts = get_container_count(prometheus_url)
+    current_state = tuple(container_counts)
+    finalize_last_action_reward(current_state)
+    if all(c == 0 for c in container_counts):
+        return jsonify({"status": "No containers to scale down."})
+    action = container_counts.index(max(container_counts))
+    selected_vm_ip = vm_ips[action]
+    username = get_user_name_by_ip(selected_vm_ip)
+    password = get_password_by_ip(selected_vm_ip)
+    command = f'sshpass -p {password} ssh -o StrictHostKeyChecking=no {username}@{selected_vm_ip} "docker rm -f $(docker ps -q --filter name=agent1 | head -n 1)"'
+    subprocess.run(command, shell=True)
+    return jsonify({
+        "scaled_down_vm_index": action,
+        "scaled_down_vm_ip": selected_vm_ip,
+        "status": "One container stopped from the most saturated VM."
+    })
+
+if __name__ == '__main__':
+    vm_ips = get_vm_ips()
+    app.run(host='0.0.0.0', port=5050)
+
+
