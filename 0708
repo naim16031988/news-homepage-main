@@ -1,3 +1,51 @@
+import paramiko
+
+def configure_docker_remote_api(host, username, key_path=None, password=None):
+    commands = [
+        # 1. Create directory
+        "sudo mkdir -p /etc/systemd/system/docker.service.d",
+        # 2. Create override.conf with the required ExecStart
+        """echo -e '[Service]\\nExecStart=\\nExecStart=/usr/bin/dockerd -H unix:///var/run/docker.sock -H tcp://0.0.0.0:2375' | sudo tee /etc/systemd/system/docker.service.d/override.conf""",
+        # 3. Reload systemd and restart Docker
+        "sudo systemctl daemon-reexec",
+        "sudo systemctl daemon-reload",
+        "sudo systemctl restart docker"
+    ]
+
+    print(f"🔐 Connecting to {host}...")
+    ssh = paramiko.SSHClient()
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    
+    try:
+        if key_path:
+            ssh.connect(hostname=host, username=username, key_filename=key_path)
+        else:
+            ssh.connect(hostname=host, username=username, password=password)
+        
+        for cmd in commands:
+            print(f"🛠️ Executing: {cmd}")
+            stdin, stdout, stderr = ssh.exec_command(cmd)
+            exit_code = stdout.channel.recv_exit_status()
+            if exit_code == 0:
+                print(stdout.read().decode().strip())
+            else:
+                print(f"❌ Error in: {cmd}\n{stderr.read().decode()}")
+                break
+
+        print("✅ Docker API configured on port 2375 (insecure)")
+    finally:
+        ssh.close()
+
+# Example usage
+if __name__ == "__main__":
+    configure_docker_remote_api(
+        host="192.168.122.101",    # 🔁 Replace with your VM IP
+        username="your_user",      # 🔁 Replace with remote username
+        key_path="/path/to/id_rsa" # or use password="your_password"
+    )
+
+
+
 import os
 import requests
 import json
