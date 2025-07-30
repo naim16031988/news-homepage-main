@@ -1,3 +1,58 @@
+import os
+import requests
+import json
+
+DOCKER_HOST = "http://192.168.122.101:2375"
+DEFAULT_DISPLAY = os.environ.get("DISPLAY", ":0")
+XAUTH = os.path.expanduser("~/.Xauthority")
+
+def create_container(container_name, image_name, port):
+    url = f"{DOCKER_HOST}/containers/create?name={container_name}"
+    headers = {"Content-Type": "application/json"}
+
+    config = {
+        "Image": image_name,
+        "Env": [
+            f"DISPLAY={DEFAULT_DISPLAY}",
+            f"PORT={port}",
+            "XAUTHORITY=/root/.Xauthority"
+        ],
+        "HostConfig": {
+            "NetworkMode": "host",
+            "NanoCpus": 3000000000,  # 3 CPUs = 3 * 1e9 nanocpus
+            "Binds": [
+                "/tmp/.X11-unix:/tmp/.X11-unix",
+                f"{XAUTH}:/root/.Xauthority"
+            ]
+        }
+    }
+
+    # 1. Création du conteneur
+    res = requests.post(url, headers=headers, data=json.dumps(config))
+    if res.status_code != 201:
+        print("❌ Failed to create container:", res.text)
+        return None
+    container_id = res.json()["Id"]
+    print(f"✅ Container created: {container_id}")
+
+    # 2. Démarrage du conteneur
+    start_url = f"{DOCKER_HOST}/containers/{container_id}/start"
+    start = requests.post(start_url)
+    if start.status_code == 204:
+        print("🚀 Container started")
+    else:
+        print("❌ Failed to start container:", start.text)
+
+if __name__ == "__main__":
+    create_container(
+        container_name="my_app",
+        image_name="your_image_name",
+        port="8081"
+    )
+
+
+
+
 @app.route('/get_vm_to_scale_down', methods=['GET'])
 def get_vm_to_scale_down():
     global last_state, last_action, last_energy, last_time
