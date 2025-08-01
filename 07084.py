@@ -1,3 +1,28 @@
+import subprocess
+import time
+
+def launch_docker_compose():
+    try:
+        print("🚀 Launching Docker Compose (detached mode)...")
+        subprocess.run(["docker", "compose", "up", "-d"], check=True)
+
+        print("⏳ Waiting 5 minutes...")
+        time.sleep(300)  # 5 minutes = 300 seconds
+
+        print("🧹 Shutting down Docker Compose...")
+        subprocess.run(["docker", "compose", "down"], check=True)
+
+        print("✅ All done.")
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Command failed: {e}")
+
+if __name__ == "__main__":
+    launch_docker_compose()
+
+
+
+
+
 import zmq
 import cv2
 import numpy as np
