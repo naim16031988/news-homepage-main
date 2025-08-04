@@ -1,3 +1,67 @@
+from flask import Flask, jsonify
+import requests
+import pandas as pd
+import numpy as np
+from statsmodels.tsa.arima.model import ARIMA
+import time
+import datetime
+
+app = Flask(__name__)
+
+# ---- Config ----
+PROMETHEUS_URL = "http://prometheus:9090"  # Use internal Docker name if on the same network
+CONTAINER_NAME = "agent"                   # Replace with your container name
+STEP = 20                                  # seconds between Prometheus samples
+POINTS = 10                                # number of points to fetch
+
+def fetch_cpu_usage():
+    now = int(time.time())
+    start = now - (POINTS * STEP)
+
+    query = f'container_cpu_usage_seconds_total{{container="{CONTAINER_NAME}"}}'
+
+    response = requests.get(
+        f"{PROMETHEUS_URL}/api/v1/query_range",
+        params={
+            "query": f"rate({query}[20s])",  # Smooth with rate over 20s
+            "start": start,
+            "end": now,
+            "step": f"{STEP}s"
+        }
+    )
+
+    result = response.json().get("data", {}).get("result", [])
+    if not result or not result[0]["values"]:
+        return []
+
+    values = result[0]["values"]
+    return [float(v[1]) for v in values]
+
+@app.route("/predict", methods=["GET"])
+def predict_cpu():
+    cpu_data = fetch_cpu_usage()
+
+    if len(cpu_data) < 10:
+        return jsonify({"error": "Not enough CPU data points"}), 400
+
+    try:
+        model = ARIMA(cpu_data, order=(3, 0, 0))
+        model_fit = model.fit()
+        forecast = model_fit.forecast(steps=12)  # 12 * 15s = 3 minutes
+        prediction = forecast.tolist()[-1]
+        return jsonify({
+            "prediction": prediction,
+            "unit": "CPU (0-1 scale)",
+            "horizon": "3 minutes"
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
+
+
+
 # 1. Upload your CSV
 from google.colab import files
 uploaded = files.upload()
