@@ -1,3 +1,68 @@
+def create_container(destination_ip, agent_name, image_name, port, has_gpu):
+    DOCKER_HOST = f"http://{destination_ip}:2375"
+    unique_id = uuid.uuid4()
+    container_name = f"{agent_name}_{unique_id}"
+    DEFAULT_DISPLAY = os.environ.get("DISPLAY", ":0")
+    XAUTH = os.path.expanduser("~/.Xauthority")
+    url = f"{DOCKER_HOST}/containers/create?name={container_name}"
+    headers = {"Content-Type": "application/json"}
+
+    env_vars = [
+        f"DISPLAY={DEFAULT_DISPLAY}",
+        f"PORT={port}",
+        "XAUTHORITY=/root/.Xauthority"
+    ]
+
+    host_config = {
+        "NetworkMode": "host",
+        "NanoCpus": 5000000000,
+        "Binds": [
+            "/tmp/.X11-unix:/tmp/.X11-unix",
+            f"{XAUTH}:/root/.Xauthority"
+        ]
+    }
+
+    if has_gpu == 1:
+        host_config["DeviceRequests"] = [{
+            "Driver": "nvidia",
+            "Count": -1,
+            "Capabilities": [["gpu"]],
+            "Options": {}
+        }]
+        env_vars += [
+            "NVIDIA_VISIBLE_DEVICES=all",
+            "NVIDIA_DRIVER_CAPABILITIES=compute,utility"
+        ]
+
+    config = {
+        "Image": image_name,
+        "Env": env_vars,
+        "HostConfig": host_config
+    }
+
+    res = requests.post(url, headers=headers, data=json.dumps(config))
+    if res.status_code != 201:
+        print(f"[ERROR] Failed to create container on {destination_ip}: {res.text}")
+        return None
+
+    container_id = res.json()["Id"]
+    print(f"Container created: {container_id}")
+
+    start_url = f"{DOCKER_HOST}/containers/{container_id}/start"
+    start = requests.post(start_url)
+    if start.status_code == 204:
+        print("Container started")
+    else:
+        print("Failed to start container:", start.text)
+
+
+
+
+
+
+
+
+
 from flask import Flask, jsonify
 import requests
 import pandas as pd
