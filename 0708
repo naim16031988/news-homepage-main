@@ -1,4 +1,31 @@
-import requests
+@app.route('/scale_down', methods=['POST'])
+def scale_down():
+    global previous_state, previous_action, previous_action_time
+
+    container_counts = get_container_count()
+    current_state = build_state(container_counts)
+    now = time.time()
+    now_str = datetime.fromtimestamp(now).strftime("%Y-%m-%d %H:%M:%S")
+
+    if previous_state is not None and previous_action is not None and previous_action_time is not None:
+        start_str = datetime.fromtimestamp(previous_action_time).strftime("%Y-%m-%d %H:%M:%S")
+        duration = now - previous_action_time
+        power = normalize(query_power(), 0, 170)
+        latency = normalize(query_latency(), 0, 180)
+        fps = normalize(query_fps(), 0, 12)
+        reward = -2 * power + 3 * latency + 4 * fps
+
+        print(f"[Scale Down] Reward calculation from {start_str} to {now_str} (duration: {duration:.2f} seconds), state: {previous_state}, action: {previous_action}, power: {power:.2f}, latency: {latency:.2f}, fps: {fps:.2f}")
+
+        dqn_agent.remember(previous_state, previous_action, reward, current_state)
+        dqn_agent.replay()
+
+        # Reset tracking to pause learning until next scale-up
+        previous_state = None
+        previous_action = None
+        previous_action_time = None
+
+    return jsonify({"message": "Scale-down completed and reward computed."})import requests
 import statistics
 
 # Replace with your values
