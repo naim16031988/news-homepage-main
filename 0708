@@ -1,3 +1,42 @@
+import requests
+import statistics
+
+# Replace with your values
+PROM_URL = "http://localhost:9090"
+INSTANCE = "vm1:9100"
+START = "2025-08-06T12:00:00Z"
+END = "2025-08-06T13:00:00Z"
+STEP = "30s"
+
+# Query URL
+url = f"{PROM_URL}/api/v1/query_range"
+params = {
+    "query": f'scaph_host_power_microwatt{{instance="{INSTANCE}"}}',
+    "start": START,
+    "end": END,
+    "step": STEP
+}
+
+# Send request
+response = requests.get(url, params=params)
+data = response.json()
+
+# Extract and average values
+if data["status"] == "success":
+    values = data["data"]["result"][0]["values"]
+    watts = [float(val) / 1_000_000 for _, val in values]
+    average_power = statistics.mean(watts)
+    print(f"Average Power: {average_power:.6f} Watts")
+else:
+    print("Query failed:", data)
+
+
+
+
+
+
+
+
 def create_container(destination_ip, agent_name, image_name, port, has_gpu):
     DOCKER_HOST = f"http://{destination_ip}:2375"
     unique_id = uuid.uuid4()
