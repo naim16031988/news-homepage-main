@@ -1,3 +1,50 @@
+# --- Predict on full dataset ---
+X_full, y_full = create_sequences(cpu_scaled, window_size)
+y_full_pred_scaled = model.predict(X_full)
+
+# Inverse transform predictions and true values
+y_full_pred = scaler.inverse_transform(y_full_pred_scaled)
+y_full_actual = scaler.inverse_transform(y_full)
+
+# Flatten for metrics
+y_actual_flat = y_full_actual.flatten()
+y_pred_flat = y_full_pred.flatten()
+
+# --- Compute metrics on full dataset ---
+mape = mean_absolute_percentage_error(y_actual_flat, y_pred_flat) * 100
+rmse = np.sqrt(mean_squared_error(y_actual_flat, y_pred_flat))
+r2 = r2_score(y_actual_flat, y_pred_flat)
+
+print(f"MAPE (Full): {mape:.2f}%")
+print(f"RMSE (Full): {rmse:.4f}")
+print(f"R² Score (Full): {r2:.4f}")
+
+# --- Build prediction timeline to match full CPU series ---
+cpu_full = scaler.inverse_transform(cpu_scaled).flatten()
+y_pred_full = np.empty_like(cpu_full)
+y_pred_full[:] = np.nan
+y_pred_full[window_size:] = y_pred_flat  # offset due to sequence window
+
+# --- Plot full predictions ---
+plt.figure(figsize=(14, 6))
+plt.plot(cpu_full, label='Original CPU')
+plt.plot(y_pred_full, label='Predicted CPU (Train + Test)', linestyle='--')
+plt.title("LSTM CPU Prediction on Full Dataset")
+plt.xlabel("Time")
+plt.ylabel("CPU Usage")
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+
+
+
+
+
+
+
+
 @app.route('/scale_down', methods=['POST'])
 def scale_down():
     global previous_state, previous_action, previous_action_time
