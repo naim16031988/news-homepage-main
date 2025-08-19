@@ -1,3 +1,149 @@
+#!/usr/bin/env python3
+"""
+Plot latency, FPS, and succeeded frames vs number of instances
+from four separate CSVs with a common Time column.
+
+Expected CSVs:
+- latency.csv           (Time, Latency like "15s" or "129 ms")
+- fps.csv               (Time, FPS like "8.98fps")
+- succeeded_frames.csv  (Time, SucceededFrames like "87%")
+- instances.csv         (Time, Instances)
+
+Usage:
+  python plot_from_csvs.py \
+      --latency latency.csv \
+      --fps fps.csv \
+      --success succeeded_frames.csv \
+      --instances instances.csv
+"""
+
+import argparse
+import re
+from pathlib import Path
+
+import pandas as pd
+import matplotlib.pyplot as plt
+
+
+def parse_latency(val: str) -> float | None:
+    """Convert latency string to milliseconds (float)."""
+    if pd.isna(val):
+        return None
+    s = str(val).strip().lower()
+    if "ms" in s:
+        try:
+            return float(s.replace("ms", "").strip())
+        except ValueError:
+            return None
+    if "s" in s:
+        try:
+            return float(s.replace("s", "").strip()) * 1000.0
+        except ValueError:
+            return None
+    return None
+
+
+def parse_fps(val: str) -> float | None:
+    """Convert FPS string like '8.98fps' to float."""
+    if pd.isna(val):
+        return None
+    s = str(val).strip().lower().replace("fps", "").strip()
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def parse_percent(val: str) -> float | None:
+    """Convert percent string like '87%' to float."""
+    if pd.isna(val):
+        return None
+    s = str(val).strip().replace("%", "").strip()
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def plot_scatter(x, y, title, xlabel, ylabel, outfile: Path | None):
+    plt.figure()
+    plt.scatter(x, y)
+    plt.title(title)
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+    plt.grid(True, linestyle="--", linewidth=0.5)
+    if outfile:
+        plt.tight_layout()
+        plt.savefig(outfile, dpi=150)
+        print(f"Saved: {outfile}")
+        plt.close()
+    else:
+        plt.show()
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--latency", required=True, help="CSV with Time, Latency")
+    ap.add_argument("--fps", required=True, help="CSV with Time, FPS")
+    ap.add_argument("--success", required=True, help="CSV with Time, SucceededFrames")
+    ap.add_argument("--instances", required=True, help="CSV with Time, Instances")
+    ap.add_argument("--outdir", default="plots", help="Directory to save PNGs (default: plots)")
+    ap.add_argument("--show", action="store_true", help="Show interactively instead of saving PNGs")
+    args = ap.parse_args()
+
+    outdir = Path(args.outdir)
+    if not args.show:
+        outdir.mkdir(parents=True, exist_ok=True)
+
+    # Load and clean each CSV
+    latency_df = pd.read_csv(args.latency)
+    fps_df = pd.read_csv(args.fps)
+    success_df = pd.read_csv(args.success)
+    inst_df = pd.read_csv(args.instances)
+
+    # Normalize time format
+    for df in [latency_df, fps_df, success_df, inst_df]:
+        df["Time"] = pd.to_datetime(df["Time"], errors="coerce")
+
+    latency_df["Latency"] = latency_df.iloc[:, 1].apply(parse_latency)
+    fps_df["FPS"] = fps_df.iloc[:, 1].apply(parse_fps)
+    success_df["SucceededFrames"] = success_df.iloc[:, 1].apply(parse_percent)
+    inst_df["Instances"] = pd.to_numeric(inst_df.iloc[:, 1], errors="coerce")
+
+    # Merge on Time
+    merged = inst_df.merge(latency_df[["Time", "Latency"]], on="Time", how="left")
+    merged = merged.merge(fps_df[["Time", "FPS"]], on="Time", how="left")
+    merged = merged.merge(success_df[["Time", "SucceededFrames"]], on="Time", how="left")
+
+    # Drop rows without Instances
+    merged = merged.dropna(subset=["Instances"])
+
+    # Plot each metric vs Instances
+    tasks = [
+        ("Latency vs Instances", "Latency", "Latency (ms)", "latency_vs_instances.png"),
+        ("FPS vs Instances", "FPS", "FPS", "fps_vs_instances.png"),
+        ("Succeeded Frames vs Instances", "SucceededFrames", "Succeeded Frames (%)", "success_vs_instances.png"),
+    ]
+
+    for title, col, ylabel, fname in tasks:
+        df = merged.dropna(subset=[col])
+        if df.empty:
+            print(f"Skipping {title}: no valid data")
+            continue
+        outfile = None if args.show else outdir / fname
+        plot_scatter(df["Instances"], df[col], title, "Number of Instances", ylabel, outfile)
+
+
+if __name__ == "__main__":
+    main()
+
+
+
+
+
+
+
+
 \chapter{Description of the Evaluation Environment}
 
 \section{Introduction}
