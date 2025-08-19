@@ -1,3 +1,70 @@
+\chapter{Description of the Evaluation Environment}
+
+\section{Introduction}
+This chapter presents the evaluation environment used to test and validate our approach. 
+Describing the infrastructure and software stack is essential to ensure that the experiments 
+can be reproduced and that the results are reliable. The environment includes both the 
+hardware resources and the software components, as well as the workloads and monitoring 
+tools employed during the evaluation. 
+
+\section{Hardware Infrastructure}
+The experiments were conducted on a small-scale cloud environment consisting of several 
+servers. Each server is equipped with a multi-core processor, a fixed amount of RAM, and 
+local storage. The servers are interconnected through a high-speed network to ensure low 
+latency and efficient communication. 
+When virtualization is used, each server hosts multiple virtual machines (VMs), configured 
+with predefined CPU and memory allocations. This setup reflects the typical heterogeneity 
+found in modern cloud data centers.
+
+\section{Software Environment}
+The software stack combines operating systems, containerization platforms, and monitoring 
+tools. All machines run a Linux-based operating system with a recent kernel version. 
+Containerization is managed through Docker, and in some experiments, Kubernetes is used 
+for orchestration. 
+To monitor the system and collect resource usage metrics, we rely on tools such as 
+Prometheus, Node Exporter, and cAdvisor. For energy monitoring, the Scaphandre framework 
+is employed, as it allows us to capture host- and VM-level power consumption.
+
+\section{Workloads and Applications}
+To evaluate the proposed solution, we deploy representative workloads. These include 
+synthetic benchmarks that generate controlled CPU and memory usage, as well as realistic 
+applications such as machine learning training jobs and network-intensive services. 
+The workloads are chosen to create different stress levels on the infrastructure and to 
+simulate realistic cloud scenarios. In addition, Service-Level Agreement (SLA) constraints 
+are considered to reflect the requirements of real customers.
+
+\section{Metrics and Data Collection}
+The evaluation relies on two categories of metrics. The first category concerns system-level 
+metrics, such as CPU utilization, memory usage, disk I/O, and network throughput. These 
+are collected through Prometheus and its exporters. The second category concerns energy 
+metrics, obtained from Scaphandre, which reports power consumption at the server or VM 
+level. All metrics are stored in a time-series database and visualized through Grafana 
+dashboards for further analysis.
+
+\section{Experimental Setup}
+The experiments follow a reproducible methodology. The workloads are deployed in the 
+evaluation environment following a defined topology, where multiple VMs or containers are 
+scheduled across the servers. Each experiment is repeated multiple times to reduce bias and 
+to validate the stability of the results. Data is collected continuously during the execution of 
+the workloads and analyzed afterward. 
+The main assumptions and limitations of this setup are that the environment is smaller than 
+a real cloud data center, and that the results may vary when scaled to a larger infrastructure. 
+Nevertheless, the chosen setup is sufficient to demonstrate the feasibility and effectiveness 
+of the proposed approach.
+
+\section{Summary}
+In summary, the evaluation environment combines physical servers, virtualization, and 
+modern monitoring tools to create a realistic yet controlled setup. It provides the necessary 
+infrastructure to test resource utilization, SLA compliance, and energy consumption. This 
+environment is therefore well suited for validating our contribution.
+
+
+
+
+
+
+
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
