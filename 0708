@@ -4,6 +4,41 @@ import sys
 import os
 
 if len(sys.argv) < 4:
+    print("Usage: python deploy_zip.py <user@vm_ip> <zip_file> <remote_path>")
+    print("Example: python deploy_zip.py ubuntu@192.168.1.10 ./project.zip /home/ubuntu/")
+    sys.exit(1)
+
+vm = sys.argv[1]           # e.g. ubuntu@192.168.1.10
+zip_file = sys.argv[2]     # e.g. ./project.zip
+remote_path = sys.argv[3]  # e.g. /home/ubuntu/
+
+# 1. Copy zip file to VM
+print(f"[+] Copying {zip_file} to {vm}:{remote_path}")
+subprocess.run(["scp", zip_file, f"{vm}:{remote_path}"], check=True)
+
+# 2. SSH into VM: unzip + build images
+remote_zip = os.path.join(remote_path, os.path.basename(zip_file))
+remote_dir = remote_zip.replace(".zip", "")
+
+print(f"[+] Unzipping and building images on {vm}")
+subprocess.run([
+    "ssh", vm,
+    f"unzip -o {remote_zip} -d {remote_dir} && cd {remote_dir} && docker build -t myimage ."
+], check=True)
+
+
+
+
+
+
+
+
+#!/usr/bin/env python3
+import subprocess
+import sys
+import os
+
+if len(sys.argv) < 4:
     print("Usage: python deploy.py <user@vm_ip> <compose_file> <remote_path>")
     print("Example: python deploy.py ubuntu@192.168.1.10 ./docker-compose.yml /home/ubuntu/")
     sys.exit(1)
