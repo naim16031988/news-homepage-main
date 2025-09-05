@@ -1,3 +1,36 @@
+#!/usr/bin/env python3
+import subprocess
+import sys
+import os
+
+if len(sys.argv) < 4:
+    print("Usage: python deploy.py <user@vm_ip> <compose_file> <remote_path>")
+    print("Example: python deploy.py ubuntu@192.168.1.10 ./docker-compose.yml /home/ubuntu/")
+    sys.exit(1)
+
+vm = sys.argv[1]          # e.g. ubuntu@192.168.1.10
+compose_file = sys.argv[2]  # e.g. ./docker-compose.yml
+remote_path = sys.argv[3]   # e.g. /home/ubuntu/
+
+# 1. Copy compose file to VM
+print(f"[+] Copying {compose_file} to {vm}:{remote_path}")
+subprocess.run(["scp", compose_file, f"{vm}:{remote_path}"], check=True)
+
+# 2. Run docker compose remotely via SSH
+remote_compose_file = os.path.join(remote_path, os.path.basename(compose_file))
+print(f"[+] Deploying services on {vm}")
+subprocess.run([
+    "ssh", vm,
+    f"docker compose -f {remote_compose_file} up -d"
+], check=True)
+
+
+
+
+
+
+
+
 import pandas as pd
 import matplotlib.pyplot as plt
 from pathlib import Path
