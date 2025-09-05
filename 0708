@@ -1,6 +1,46 @@
 #!/usr/bin/env python3
 import subprocess
 import sys
+import os
+
+if len(sys.argv) < 5:
+    print("Usage: python deploy_simple.py <user@vm_ip> <zip_file> <compose_file> <remote_path>")
+    sys.exit(1)
+
+vm = sys.argv[1]           # e.g. ubuntu@192.168.1.10
+zip_file = sys.argv[2]     # e.g. ./project.zip
+compose_file = sys.argv[3] # e.g. ./docker-compose.yml
+remote_path = sys.argv[4]  # e.g. /home/ubuntu/
+
+zip_name = os.path.basename(zip_file)
+compose_name = os.path.basename(compose_file)
+remote_zip = os.path.join(remote_path, zip_name)
+remote_compose = os.path.join(remote_path, compose_name)
+remote_dir = os.path.join(remote_path, zip_name.replace(".zip", ""))
+
+# 1. Copy files
+subprocess.run(["scp", zip_file, compose_file, f"{vm}:{remote_path}"], check=True)
+
+# 2. SSH: unzip + run docker compose
+cmd = f"""
+unzip -o {remote_zip} -d {remote_dir} && \
+cd {remote_dir} && \
+docker compose -f {remote_compose} up -d
+"""
+subprocess.run(["ssh", vm, cmd], check=True)
+
+print("[+] Deployment finished.")
+
+
+
+
+
+
+
+
+#!/usr/bin/env python3
+import subprocess
+import sys
 import json
 import os
 
