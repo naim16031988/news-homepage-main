@@ -1,3 +1,72 @@
+
+import os
+import subprocess
+from flask import Flask, request, render_template_string
+
+UPLOAD_FOLDER = "/uploads"
+RTSP_URL = "rtsp://rtsp-server:8554/webcam"
+
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+app = Flask(__name__)
+ffmpeg_process = None  # keep reference to current process
+
+HTML_PAGE = """
+<!DOCTYPE html>
+<html>
+<head><title>Video Uploader</title></head>
+<body>
+  <h2>Upload a video to stream via RTSP</h2>
+  <form method="post" enctype="multipart/form-data">
+    <input type="file" name="video" accept="video/*">
+    <input type="submit" value="Upload & Stream">
+  </form>
+</body>
+</html>
+"""
+
+@app.route("/", methods=["GET", "POST"])
+def upload_video():
+    global ffmpeg_process
+    if request.method == "POST":
+        video = request.files.get("video")
+        if not video or video.filename == "":
+            return "❌ No video uploaded", 400
+
+        filepath = os.path.join(UPLOAD_FOLDER, video.filename)
+        video.save(filepath)
+
+        # Stop any running ffmpeg before starting new one
+        if ffmpeg_process and ffmpeg_process.poll() is None:
+            ffmpeg_process.terminate()
+            try:
+                ffmpeg_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                ffmpeg_process.kill()
+
+        # Start new ffmpeg
+        cmd = [
+            "ffmpeg", "-re",
+            "-i", filepath,
+            "-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency",
+            "-g", "48", "-keyint_min", "48", "-pix_fmt", "yuv420p",
+            "-rtsp_transport", "tcp", "-an",
+            "-f", "rtsp", RTSP_URL
+        ]
+        ffmpeg_process = subprocess.Popen(cmd)
+
+        return f"✅ Now streaming {video.filename} to {RTSP_URL}"
+
+    return render_template_string(HTML_PAGE)
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8080)
+
+
+
+
+
+
+
 #!/usr/bin/env python3
 import subprocess
 import sys
