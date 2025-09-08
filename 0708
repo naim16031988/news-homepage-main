@@ -1,3 +1,153 @@
+import os
+import time
+import subprocess
+from flask import Flask, request, Response, render_template_string
+import cv2
+
+UPLOAD_FOLDER = "/uploads"
+RTSP_URL = "rtsp://rtsp-server:8554/webcam"
+
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+app = Flask(__name__)
+ffmpeg_process = None  # track current publisher
+
+PAGE = """
+<!doctype html>
+<html>
+  <head><title>RTSP Uploader + Preview</title></head>
+  <body style="font-family: sans-serif;">
+    <h2>Upload a video to stream via RTSP</h2>
+    <form method="post" enctype="multipart/form-data">
+      <input type="file" name="video" accept="video/*" required>
+      <button type="submit">Upload & Stream</button>
+    </form>
+
+    <h3>Live preview</h3>
+    <p>(Low-latency MJPEG preview from {{ rtsp }})</p>
+    <img src="/stream" style="max-width: 100%; border: 1px solid #ccc" />
+  </body>
+</html>
+"""
+
+@app.route("/", methods=["GET", "POST"])
+def index():
+    global ffmpeg_process
+    if request.method == "POST":
+        video = request.files.get("video")
+        if not video or video.filename == "":
+            return "❌ No video uploaded", 400
+
+        filepath = os.path.join(UPLOAD_FOLDER, video.filename)
+        video.save(filepath)
+
+        # Stop old ffmpeg if running
+        if ffmpeg_process and ffmpeg_process.poll() is None:
+            ffmpeg_process.terminate()
+            try:
+                ffmpeg_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                ffmpeg_process.kill()
+
+        # Restart dispatcher so frame_id resets to 0
+        subprocess.run(["docker", "restart", "dispatcher"])
+
+        # Wait for RTSP server to clear old session
+        time.sleep(12)  # adjust 8–15s as needed
+
+        # Start new ffmpeg publisher
+        cmd = [
+            "ffmpeg", "-re",
+            "-i", filepath,
+            "-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency",
+            "-g", "48", "-keyint_min", "48", "-pix_fmt", "yuv420p",
+            "-rtsp_transport", "tcp", "-an",
+            "-f", "rtsp", RTSP_URL
+        ]
+        ffmpeg_process = subprocess.Popen(cmd)
+
+        return f"✅ Now streaming {video.filename} to {RTSP_URL} (dispatcher restarted)"
+
+    return render_template_string(PAGE, rtsp=RTSP_URL)
+
+def gen_mjpeg():
+    # Simple per-request capture (easy & robust). For higher perf, switch to a shared capture thread.
+    cap = cv2.VideoCapture(RTSP_URL)
+    if not cap.isOpened():
+        # yield a single placeholder frame to avoid hanging
+        yield (b"--frame\r\n"
+               b"Content-Type: image/jpeg\r\n\r\n" +
+               b"" + b"\r\n")
+        return
+
+    try:
+        while True:
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                time.sleep(0.05)
+                continue
+            ok, buf = cv2.imencode(".jpg", frame)
+            if not ok:
+                continue
+            jpg = buf.tobytes()
+            yield (b"--frame\r\n"
+                   b"Content-Type: image/jpeg\r\n\r\n" + jpg + b"\r\n")
+    finally:
+        cap.release()
+
+@app.route("/stream")
+def stream():
+    return Response(gen_mjpeg(),
+                    mimetype="multipart/x-mixed-replace; boundary=frame")
+
+if __name__ == "__main__":
+    # Flask dev server; behind Docker we expose 8080
+    app.run(host="0.0.0.0", port=8080, threaded=True)
+
+
+
+dockefile
+FROM python:3.9-slim-bullseye
+
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg libglib2.0-0 libsm6 libxext6 \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir flask opencv-python
+
+COPY app.py .
+
+EXPOSE 8080
+VOLUME ["/uploads"]
+CMD ["python", "app.py"]
+
+
+
+dockercompose
+services:
+  rtsp-server:
+    image: bluenviron/mediamtx:latest
+    container_name: rtsp-server
+    restart: unless-stopped
+    ports:
+      - "8554:8554"
+      - "8888:8888"
+    volumes:
+      - ./mediamtx.yml:/mediamtx.yml:ro
+
+  web-uploader:
+    build: ./web-uploader
+    container_name: web-uploader
+    volumes:
+      - ./uploads:/uploads
+    ports:
+      - "8080:8080"
+    depends_on:
+      - rtsp-server
+
+
+
+
 
 import os
 import subprocess
