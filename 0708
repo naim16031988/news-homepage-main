@@ -1,3 +1,208 @@
+#!/usr/bin/env python3
+"""
+LSTM CPU Usage Predictor
+
+- Loads a pre-built LSTM model (Keras .h5 or SavedModel directory).
+- Reads a CSV with columns: timestamp, cpu (or specify via args).
+- Retrieves the last N previous values (default: 10) as the input sequence.
+- Iteratively predicts the next M future values (default: 10).
+- Plots original vs. predicted on the same figure and saves it as a PNG.
+
+Examples:
+    python lstm_predict_cpu.py --csv cpu.csv --model model.h5 --past 10 --future 10 --savefig forecast.png
+
+Optional scaler:
+    If your model was trained on scaled data, pass a fitted scaler (.pkl) created with scikit-learn:
+    python lstm_predict_cpu.py --csv cpu.csv --model model.h5 --scaler scaler.pkl
+"""
+import argparse
+import os
+import sys
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# TensorFlow/Keras (only needed at runtime when you actually run the script)
+try:
+    import tensorflow as tf
+except Exception as e:
+    tf = None
+
+# Optional: scikit-learn MinMax/Standard scaler loaded via joblib
+try:
+    import joblib
+except Exception:
+    joblib = None
+
+
+def load_model(model_path: str):
+    if tf is None:
+        raise RuntimeError("TensorFlow is not available. Install tensorflow to load the LSTM model.")
+    try:
+        model = tf.keras.models.load_model(model_path)
+        return model
+    except Exception as e:
+        raise RuntimeError(f"Failed to load model from {model_path}: {e}")
+
+
+def maybe_load_scaler(scaler_path: str):
+    if not scaler_path:
+        return None
+    if joblib is None:
+        raise RuntimeError("joblib is required to load a scaler (.pkl). Install scikit-learn/joblib or omit --scaler.")
+    if not os.path.exists(scaler_path):
+        raise FileNotFoundError(f"Scaler file not found: {scaler_path}")
+    return joblib.load(scaler_path)
+
+
+def infer_freq(timestamps: pd.Series):
+    """
+    Infer the sampling interval from timestamps. Returns a pandas Timedelta or None.
+    """
+    if timestamps.empty or len(timestamps) < 2:
+        return None
+    diffs = timestamps.sort_values().diff().dropna()
+    if diffs.empty:
+        return None
+    # Use the most common difference (mode) to be robust to jitter
+    try:
+        mode_delta = diffs.mode().iloc[0]
+        return mode_delta
+    except Exception:
+        return diffs.median()
+
+
+def build_argparser():
+    p = argparse.ArgumentParser(description="Predict future CPU usage with a pre-built LSTM model.")
+    p.add_argument("--csv", required=True, help="Path to CSV file with time series.")
+    p.add_argument("--model", required=True, help="Path to Keras model (.h5 or SavedModel dir).")
+    p.add_argument("--scaler", default=None, help="Optional path to fitted scaler .pkl (e.g., MinMaxScaler).")
+    p.add_argument("--timestamp", default="timestamp", help="Timestamp column name in CSV (default: timestamp).")
+    p.add_argument("--column", default="cpu", help="Value column name in CSV (default: cpu).")
+    p.add_argument("--past", type=int, default=10, help="Number of previous values to use as input sequence (default: 10).")
+    p.add_argument("--future", type=int, default=10, help="Number of future steps to predict (default: 10).")
+    p.add_argument("--savefig", default="forecast.png", help="Filename to save the plot (default: forecast.png).")
+    p.add_argument("--delimiter", default=",", help="CSV delimiter (default: ,).")
+    return p
+
+
+def main():
+    args = build_argparser().parse_args()
+
+    if not os.path.exists(args.csv):
+        print(f"CSV not found: {args.csv}", file=sys.stderr)
+        sys.exit(1)
+
+    # Load data
+    df = pd.read_csv(args.csv, delimiter=args.delimiter)
+    if args.timestamp not in df.columns:
+        print(f"Timestamp column '{args.timestamp}' not found. Available: {list(df.columns)}", file=sys.stderr)
+        sys.exit(1)
+    if args.column not in df.columns:
+        print(f"Value column '{args.column}' not found. Available: {list(df.columns)}", file=sys.stderr)
+        sys.exit(1)
+
+    # Prepare time series
+    df = df[[args.timestamp, args.column]].copy()
+    df[args.timestamp] = pd.to_datetime(df[args.timestamp])
+    df = df.sort_values(args.timestamp).dropna(subset=[args.column])
+    values = df[args.column].astype(float).values.reshape(-1, 1)
+
+    # Optional scaling
+    scaler = maybe_load_scaler(args.scaler) if args.scaler else None
+    if scaler is not None:
+        values_scaled = scaler.transform(values)
+        series_for_model = values_scaled
+    else:
+        series_for_model = values
+
+    if len(series_for_model) < args.past:
+        print(f"Not enough data points: need at least {args.past}, have {len(series_for_model)}", file=sys.stderr)
+        sys.exit(1)
+
+    # Take the last 'past' values for input
+    last_past = series_for_model[-args.past:]  # shape: (past, 1)
+    x = last_past[np.newaxis, ...]             # shape: (1, past, 1)
+
+    # Load model
+    model = load_model(args.model)
+
+    # Predict iteratively for 'future' steps
+    preds = []
+    cur_seq = x.copy()  # (1, past, 1)
+    for _ in range(args.future):
+        yhat = model.predict(cur_seq, verbose=0)
+        # Expecting output shape (1, 1) or (1, 1, 1). Make robust:
+        if yhat.ndim == 3:
+            yhat_val = yhat[:, -1, :]
+        else:
+            yhat_val = yhat
+        preds.append(float(yhat_val.flatten()[0]))
+
+        # Append prediction to the sequence and slide window
+        next_point = yhat_val.reshape(1, 1, 1)
+        cur_seq = np.concatenate([cur_seq[:, 1:, :], next_point], axis=1)
+
+    preds = np.array(preds).reshape(-1, 1)
+
+    # Inverse scale if needed
+    if scaler is not None:
+        preds_unscaled = scaler.inverse_transform(preds)
+        orig_values = scaler.inverse_transform(series_for_model)
+    else:
+        preds_unscaled = preds
+        orig_values = series_for_model
+
+    # Build future timestamps
+    ts = df[args.timestamp].values
+    freq = infer_freq(df[args.timestamp])
+    if freq is None:
+        # Fallback: assume unit steps if frequency cannot be inferred
+        future_index = np.arange(len(orig_values), len(orig_values) + args.future)
+        future_times = future_index
+        x_axis = np.arange(len(orig_values))
+        x_axis_future = future_index
+        x_label = "Index"
+    else:
+        last_time = df[args.timestamp].iloc[-1]
+        future_times = [last_time + (i + 1) * freq for i in range(args.future)]
+        x_axis = df[args.timestamp]
+        x_axis_future = pd.to_datetime(future_times)
+        x_label = args.timestamp
+
+    # Plot original and predicted in the same figure
+    plt.figure()
+    plt.plot(x_axis, orig_values.flatten(), label="Original")
+    plt.plot(x_axis_future, preds_unscaled.flatten(), label="Predicted")
+    plt.xlabel(x_label)
+    plt.ylabel(args.column)
+    plt.title("CPU Usage Forecast (LSTM)")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(args.savefig, dpi=150)
+    print(f"Saved plot to {args.savefig}")
+
+    # Also print predictions with their timestamps for convenience
+    if isinstance(x_axis_future, (list, tuple, np.ndarray)):
+        times_list = x_axis_future
+    else:
+        times_list = list(x_axis_future.values) if hasattr(x_axis_future, "values") else list(x_axis_future)
+
+    print("Future predictions:")
+    for t, v in zip(times_list, preds_unscaled.flatten().tolist()):
+        print(f"{t}: {v:.6f}")
+
+
+if __name__ == "__main__":
+    main()
+
+
+
+
+
+
+
+
 import subprocess
 import sys
 import os
